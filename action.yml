@@ -1,0 +1,96 @@
+name: Limbowatch
+description: Check dependencies against security advisories in limbo, not yet in the databases scanners read.
+author: Limbowatch
+branding:
+  icon: clock
+  color: orange
+inputs:
+  path:
+    description: Project directory to scan.
+    default: "."
+  fail-on:
+    description: Fail for findings at or above this severity (critical, high, medium, low, none).
+    default: low
+  fail-on-unknown:
+    description: Also fail for findings with no severity.
+    default: "true"
+  sarif:
+    description: Write SARIF to this file (for GitHub code scanning); empty for none.
+    default: ""
+  issues:
+    description: >-
+      "gitea" to open and update issues in this repo (Gitea or Forgejo) from the default branch or a
+      schedule. Needs a LIMBOWATCH_ISSUES_TOKEN secret. Never opens issues in a public repo.
+    default: ""
+  issues-token:
+    description: Token that can write issues here (pass a secret).
+    default: ""
+  extra-args:
+    description: More `limbowatch scan` options.
+    default: ""
+  osv-scanner-version:
+    default: 2.7.0
+  limbowatch-source:
+    description: Where `<ref>.tar.gz` source archives are served.
+    default: https://github.com/limbowatch/limbowatch/archive
+  limbowatch-ref:
+    description: Pin to a release tag.
+    default: main
+runs:
+  using: composite
+  steps:
+    - name: Install OSV-Scanner and Limbowatch
+      shell: bash
+      env:
+        LW_OSV_VERSION: ${{ inputs.osv-scanner-version }}
+        LW_SOURCE: ${{ inputs.limbowatch-source }}
+        LW_REF: ${{ inputs.limbowatch-ref }}
+      run: |
+        set -eu
+        case "$(uname -m)" in x86_64) arch=amd64 ;; aarch64|arm64) arch=arm64 ;; *) echo "unsupported $(uname -m)"; exit 2 ;; esac
+        bin="${RUNNER_TEMP:-/tmp}/limbowatch-bin"
+        mkdir -p "$bin"
+        python3 - "$LW_OSV_VERSION" "$arch" "$bin/osv-scanner" <<'PY'
+        import hashlib, sys, urllib.request
+        ver, arch, dest = sys.argv[1:]
+        base = f"https://github.com/google/osv-scanner/releases/download/v{ver}/"
+        name = f"osv-scanner_linux_{arch}"
+        sums = urllib.request.urlopen(base + "osv-scanner_SHA256SUMS", timeout=60).read().decode()
+        want = next(line.split()[0] for line in sums.splitlines() if line.endswith(" " + name))
+        data = urllib.request.urlopen(base + name, timeout=300).read()
+        if hashlib.sha256(data).hexdigest() != want:
+            sys.exit(f"checksum mismatch for {name}")
+        open(dest, "wb").write(data)
+        PY
+        chmod +x "$bin/osv-scanner"
+        echo "$bin" >> "$GITHUB_PATH"
+        python3 -m venv "$bin/venv"
+        src="${LW_SOURCE}/${LW_REF}.tar.gz"
+        "$bin/venv/bin/pip" install --quiet --disable-pip-version-check \
+          "limbowatch @ ${src}#subdirectory=packages/core" "limbowatch-cli @ ${src}#subdirectory=packages/cli"
+        ln -sf "$bin/venv/bin/limbowatch" "$bin/limbowatch"
+    - name: Scan
+      shell: bash
+      env:
+        LW_PATH: ${{ inputs.path }}
+        LW_FAIL_ON: ${{ inputs.fail-on }}
+        LW_FAIL_ON_UNKNOWN: ${{ inputs.fail-on-unknown }}
+        LW_SARIF: ${{ inputs.sarif }}
+        LW_ISSUES: ${{ inputs.issues }}
+        LW_EXTRA: ${{ inputs.extra-args }}
+        LIMBOWATCH_ISSUES_TOKEN: ${{ inputs.issues-token }}
+        LW_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      run: |
+        set -eu
+        set -- --cache "${RUNNER_TEMP:-/tmp}/limbowatch-cache" --output markdown=limbowatch.md --fail-on "$LW_FAIL_ON"
+        [ "$LW_FAIL_ON_UNKNOWN" = "true" ] || set -- "$@" --no-fail-on-unknown
+        [ -z "$LW_SARIF" ] || set -- "$@" --output "sarif=$LW_SARIF"
+        branch="${GITHUB_REF_NAME:-}"
+        if [ "$LW_ISSUES" = "gitea" ] && { [ "$branch" = "$LW_DEFAULT_BRANCH" ] || [ "${GITHUB_EVENT_NAME:-}" = "schedule" ]; }; then
+          set -- "$@" --issues gitea
+        fi
+        status=0
+        # shellcheck disable=SC2086 # LW_EXTRA is a list of options
+        limbowatch scan "$LW_PATH" "$@" $LW_EXTRA || status=$?
+        [ -z "${GITHUB_STEP_SUMMARY:-}" ] || cat limbowatch.md >> "$GITHUB_STEP_SUMMARY"
+        exit "$status"
