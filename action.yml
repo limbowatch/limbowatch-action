@@ -34,8 +34,8 @@ inputs:
     description: Where `<ref>.tar.gz` source archives are served.
     default: https://github.com/limbowatch/limbowatch/archive
   limbowatch-ref:
-    description: Pin to a release tag.
-    default: main
+    description: Limbowatch release tag to install.
+    default: v0.1.0
 runs:
   using: composite
   steps:
