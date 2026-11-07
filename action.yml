@@ -45,7 +45,7 @@ inputs:
     default: https://github.com/limbowatch/limbowatch/archive
   limbowatch-ref:
     description: Limbowatch release tag to install.
-    default: v0.1.0
+    default: v0.1.0a1
 outputs:
   findings:
     description: Findings that aren't accepted (ignored).
