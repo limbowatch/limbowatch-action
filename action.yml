@@ -68,30 +68,7 @@ runs:
         LW_OSV_VERSION: ${{ inputs.osv-scanner-version }}
         LW_SOURCE: ${{ inputs.limbowatch-source }}
         LW_REF: ${{ inputs.limbowatch-ref }}
-      run: |
-        set -eu
-        case "$(uname -m)" in x86_64) arch=amd64 ;; aarch64|arm64) arch=arm64 ;; *) echo "unsupported $(uname -m)"; exit 2 ;; esac
-        bin="${RUNNER_TEMP:-/tmp}/limbowatch-bin"
-        mkdir -p "$bin"
-        python3 - "$LW_OSV_VERSION" "$arch" "$bin/osv-scanner" <<'PY'
-        import hashlib, sys, urllib.request
-        ver, arch, dest = sys.argv[1:]
-        base = f"https://github.com/google/osv-scanner/releases/download/v{ver}/"
-        name = f"osv-scanner_linux_{arch}"
-        sums = urllib.request.urlopen(base + "osv-scanner_SHA256SUMS", timeout=60).read().decode()
-        want = next(line.split()[0] for line in sums.splitlines() if line.endswith(" " + name))
-        data = urllib.request.urlopen(base + name, timeout=300).read()
-        if hashlib.sha256(data).hexdigest() != want:
-            sys.exit(f"checksum mismatch for {name}")
-        open(dest, "wb").write(data)
-        PY
-        chmod +x "$bin/osv-scanner"
-        echo "$bin" >> "$GITHUB_PATH"
-        python3 -m venv "$bin/venv"
-        src="${LW_SOURCE}/${LW_REF}.tar.gz"
-        "$bin/venv/bin/pip" install --quiet --disable-pip-version-check \
-          "limbowatch @ ${src}#subdirectory=packages/core" "limbowatch-cli @ ${src}#subdirectory=packages/cli"
-        ln -sf "$bin/venv/bin/limbowatch" "$bin/limbowatch"
+      run: bash "${{ github.action_path }}/install.sh"
     - name: Scan
       id: scan
       shell: bash
@@ -106,34 +83,4 @@ runs:
         LW_EXTRA: ${{ inputs.extra-args }}
         LIMBOWATCH_ISSUES_TOKEN: ${{ inputs.issues-token }}
         LW_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-      run: |
-        set -eu
-        tmp="${RUNNER_TEMP:-/tmp}"
-        set -- --cache "$tmp/limbowatch-cache" --fail-on "$LW_FAIL_ON" \
-               -o table -o "json=$tmp/limbowatch.json" -o "markdown=$tmp/limbowatch.md" -o "github=$tmp/limbowatch.annotations"
-        [ "$LW_FAIL_ON_UNKNOWN" = "true" ] || set -- "$@" --no-fail-on-unknown
-        [ -z "$LW_SARIF" ] || set -- "$@" -o "sarif=$LW_SARIF"
-        if [ -n "$LW_REPORTS" ]; then
-          set -- "$@" -o "json=$LW_REPORTS/report.json" -o "markdown=$LW_REPORTS/report.md" -o "html=$LW_REPORTS/report.html" \
-                 -o "csv=$LW_REPORTS/report.csv" -o "cyclonedx=$LW_REPORTS/bom.cdx.json"
-        fi
-        branch="${GITHUB_REF_NAME:-}"
-        if [ "$LW_ISSUES" = "gitea" ] && { [ "$branch" = "$LW_DEFAULT_BRANCH" ] || [ "${GITHUB_EVENT_NAME:-}" = "schedule" ]; }; then
-          set -- "$@" --issues gitea
-        fi
-        status=0
-        # shellcheck disable=SC2086 # LW_EXTRA is a list of options
-        limbowatch scan "$LW_PATH" "$@" $LW_EXTRA || status=$?
-        if [ "$status" -le 1 ] && [ -f "$tmp/limbowatch.json" ]; then
-          [ "$LW_ANNOTATIONS" != "true" ] || cat "$tmp/limbowatch.annotations"
-          [ -z "${GITHUB_STEP_SUMMARY:-}" ] || cat "$tmp/limbowatch.md" >> "$GITHUB_STEP_SUMMARY"
-          python3 - "$tmp/limbowatch.json" >> "$GITHUB_OUTPUT" <<'PY'
-        import json, sys
-        doc = json.load(open(sys.argv[1]))
-        print(f"findings={doc['summary']['findings']}")
-        print(f"failing={doc['gate']['failing_findings']}")
-        print(f"failed={'true' if doc['gate']['failed'] else 'false'}")
-        PY
-          [ -z "$LW_REPORTS" ] || echo "report=$LW_REPORTS/report.json" >> "$GITHUB_OUTPUT"
-        fi
-        exit "$status"
+      run: bash "${{ github.action_path }}/scan.sh"
