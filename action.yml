@@ -17,6 +17,16 @@ inputs:
   sarif:
     description: Write SARIF to this file (for GitHub code scanning); empty for none.
     default: ""
+  annotations:
+    description: >-
+      Annotate each finding on its lockfile line in the pull request ("true" or "false"). Works without code
+      scanning; GitHub shows at most 10 annotations of each level per step.
+    default: "true"
+  reports:
+    description: >-
+      Directory for the full reports (report.json, report.md, report.html, report.csv, bom.cdx.json); empty for
+      none. Upload it with actions/upload-artifact to keep it.
+    default: limbowatch-report
   issues:
     description: >-
       "gitea" to open and update issues in this repo (Gitea or Forgejo) from the default branch or a
@@ -36,6 +46,19 @@ inputs:
   limbowatch-ref:
     description: Limbowatch release tag to install.
     default: v0.1.0
+outputs:
+  findings:
+    description: Findings that aren't accepted (ignored).
+    value: ${{ steps.scan.outputs.findings }}
+  failing:
+    description: Findings at or above fail-on.
+    value: ${{ steps.scan.outputs.failing }}
+  failed:
+    description: '"true" if the scan failed the fail-on gate.'
+    value: ${{ steps.scan.outputs.failed }}
+  report:
+    description: Path of the JSON report (schema_version 1), when reports is set.
+    value: ${{ steps.scan.outputs.report }}
 runs:
   using: composite
   steps:
@@ -70,21 +93,30 @@ runs:
           "limbowatch @ ${src}#subdirectory=packages/core" "limbowatch-cli @ ${src}#subdirectory=packages/cli"
         ln -sf "$bin/venv/bin/limbowatch" "$bin/limbowatch"
     - name: Scan
+      id: scan
       shell: bash
       env:
         LW_PATH: ${{ inputs.path }}
         LW_FAIL_ON: ${{ inputs.fail-on }}
         LW_FAIL_ON_UNKNOWN: ${{ inputs.fail-on-unknown }}
         LW_SARIF: ${{ inputs.sarif }}
+        LW_ANNOTATIONS: ${{ inputs.annotations }}
+        LW_REPORTS: ${{ inputs.reports }}
         LW_ISSUES: ${{ inputs.issues }}
         LW_EXTRA: ${{ inputs.extra-args }}
         LIMBOWATCH_ISSUES_TOKEN: ${{ inputs.issues-token }}
         LW_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
       run: |
         set -eu
-        set -- --cache "${RUNNER_TEMP:-/tmp}/limbowatch-cache" --output markdown=limbowatch.md --fail-on "$LW_FAIL_ON"
+        tmp="${RUNNER_TEMP:-/tmp}"
+        set -- --cache "$tmp/limbowatch-cache" --fail-on "$LW_FAIL_ON" \
+               -o table -o "json=$tmp/limbowatch.json" -o "markdown=$tmp/limbowatch.md" -o "github=$tmp/limbowatch.annotations"
         [ "$LW_FAIL_ON_UNKNOWN" = "true" ] || set -- "$@" --no-fail-on-unknown
-        [ -z "$LW_SARIF" ] || set -- "$@" --output "sarif=$LW_SARIF"
+        [ -z "$LW_SARIF" ] || set -- "$@" -o "sarif=$LW_SARIF"
+        if [ -n "$LW_REPORTS" ]; then
+          set -- "$@" -o "json=$LW_REPORTS/report.json" -o "markdown=$LW_REPORTS/report.md" -o "html=$LW_REPORTS/report.html" \
+                 -o "csv=$LW_REPORTS/report.csv" -o "cyclonedx=$LW_REPORTS/bom.cdx.json"
+        fi
         branch="${GITHUB_REF_NAME:-}"
         if [ "$LW_ISSUES" = "gitea" ] && { [ "$branch" = "$LW_DEFAULT_BRANCH" ] || [ "${GITHUB_EVENT_NAME:-}" = "schedule" ]; }; then
           set -- "$@" --issues gitea
@@ -92,5 +124,16 @@ runs:
         status=0
         # shellcheck disable=SC2086 # LW_EXTRA is a list of options
         limbowatch scan "$LW_PATH" "$@" $LW_EXTRA || status=$?
-        [ -z "${GITHUB_STEP_SUMMARY:-}" ] || cat limbowatch.md >> "$GITHUB_STEP_SUMMARY"
+        if [ "$status" -le 1 ] && [ -f "$tmp/limbowatch.json" ]; then
+          [ "$LW_ANNOTATIONS" != "true" ] || cat "$tmp/limbowatch.annotations"
+          [ -z "${GITHUB_STEP_SUMMARY:-}" ] || cat "$tmp/limbowatch.md" >> "$GITHUB_STEP_SUMMARY"
+          python3 - "$tmp/limbowatch.json" >> "$GITHUB_OUTPUT" <<'PY'
+        import json, sys
+        doc = json.load(open(sys.argv[1]))
+        print(f"findings={doc['summary']['findings']}")
+        print(f"failing={doc['gate']['failing_findings']}")
+        print(f"failed={'true' if doc['gate']['failed'] else 'false'}")
+        PY
+          [ -z "$LW_REPORTS" ] || echo "report=$LW_REPORTS/report.json" >> "$GITHUB_OUTPUT"
+        fi
         exit "$status"
