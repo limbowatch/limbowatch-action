@@ -24,7 +24,7 @@ inputs:
     default: "true"
   reports:
     description: >-
-      Directory for the full reports (report.json, report.md, report.html, report.csv, bom.cdx.json); empty for
+      Directory for the full reports (report.json, report.md, report.html, report.csv, cyclonedx.json); empty for
       none. Upload it with actions/upload-artifact to keep it.
     default: limbowatch-report
   issues:

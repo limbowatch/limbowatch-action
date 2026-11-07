@@ -8,7 +8,7 @@ set -- --cache "$tmp/limbowatch-cache" --fail-on "$LW_FAIL_ON" \
 [ -z "$LW_SARIF" ] || set -- "$@" -o "sarif=$LW_SARIF"
 if [ -n "$LW_REPORTS" ]; then
   set -- "$@" -o "json=$LW_REPORTS/report.json" -o "markdown=$LW_REPORTS/report.md" -o "html=$LW_REPORTS/report.html" \
-         -o "csv=$LW_REPORTS/report.csv" -o "cyclonedx=$LW_REPORTS/bom.cdx.json"
+         -o "csv=$LW_REPORTS/report.csv" -o "cyclonedx=$LW_REPORTS/cyclonedx.json"
 fi
 branch="${GITHUB_REF_NAME:-}"
 if [ "$LW_ISSUES" = "gitea" ] && { [ "$branch" = "$LW_DEFAULT_BRANCH" ] || [ "${GITHUB_EVENT_NAME:-}" = "schedule" ]; }; then
