@@ -14,6 +14,11 @@ inputs:
   fail-on-unknown:
     description: Also fail for findings with no severity.
     default: "true"
+  allow-failure:
+    description: >-
+      "true" to pass the step with a warning when findings meet fail-on. A scan that couldn't run (exit code 2)
+      still fails.
+    default: "false"
   sarif:
     description: Write SARIF to this file (for GitHub code scanning); empty for none.
     default: ""
@@ -24,8 +29,8 @@ inputs:
     default: "true"
   reports:
     description: >-
-      Directory for the full reports (report.json, report.md, report.html, report.csv, cyclonedx.json); empty for
-      none. Upload it with actions/upload-artifact to keep it.
+      Directory for the full reports (report.json, report.md, report.html, report.sarif, report.csv,
+      cyclonedx.json); empty for none. Upload it with actions/upload-artifact to keep it.
     default: limbowatch-report
   issues:
     description: >-
@@ -38,13 +43,22 @@ inputs:
   extra-args:
     description: More `limbowatch scan` options.
     default: ""
+  install:
+    description: >-
+      How to run Limbowatch. "image": the Limbowatch image (Linux with Docker). "python": install it with pip
+      (needs Python 3.12; macOS, Windows, or a job that runs in a container). "auto": the image where it works.
+    default: auto
+  image:
+    description: The Limbowatch image, pinned by digest (built and attested by the Limbowatch repository).
+    default: ghcr.io/limbowatch/limbowatch:0.1.0a2@sha256:7ef6857b1c5c8f9109be08a12b183ac41aec540bbe35af4b80487a0cb658ebf4
   osv-scanner-version:
+    description: OSV-Scanner release to download with install "python" (checked against its SHA-256 sums).
     default: 2.7.0
   limbowatch-source:
-    description: Where `<ref>.tar.gz` source archives are served.
+    description: Where `<ref>.tar.gz` source archives are served, for install "python".
     default: https://github.com/limbowatch/limbowatch/archive
   limbowatch-ref:
-    description: Limbowatch release tag to install.
+    description: Limbowatch release tag to install with install "python".
     default: v0.1.0a2
 outputs:
   findings:
@@ -62,9 +76,11 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: Install OSV-Scanner and Limbowatch
+    - name: Set up Limbowatch
       shell: bash
       env:
+        LW_INSTALL: ${{ inputs.install }}
+        LW_IMAGE: ${{ inputs.image }}
         LW_OSV_VERSION: ${{ inputs.osv-scanner-version }}
         LW_SOURCE: ${{ inputs.limbowatch-source }}
         LW_REF: ${{ inputs.limbowatch-ref }}
@@ -76,6 +92,8 @@ runs:
         LW_PATH: ${{ inputs.path }}
         LW_FAIL_ON: ${{ inputs.fail-on }}
         LW_FAIL_ON_UNKNOWN: ${{ inputs.fail-on-unknown }}
+        LW_ALLOW_FAILURE: ${{ inputs.allow-failure }}
+        LW_IMAGE: ${{ inputs.image }}
         LW_SARIF: ${{ inputs.sarif }}
         LW_ANNOTATIONS: ${{ inputs.annotations }}
         LW_REPORTS: ${{ inputs.reports }}
