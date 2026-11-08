@@ -28,13 +28,24 @@ case "$mode" in
     mkdir -p "$bin"
     # OSV-Scanner, checked against its release's SHA-256 sums
     python3 - "$LW_OSV_VERSION" "$os" "$arch" "$bin/osv-scanner" <<'PY'
-import hashlib, sys, urllib.request
+import hashlib, sys, time, urllib.error, urllib.request
 ver, os_, arch, dest = sys.argv[1:]
 base = f"https://github.com/google/osv-scanner/releases/download/v{ver}/"
 name = f"osv-scanner_{os_}_{arch}" + (".exe" if os_ == "windows" else "")
-sums = urllib.request.urlopen(base + "osv-scanner_SHA256SUMS", timeout=60).read().decode()
+
+def get(url, timeout):  # GitHub's release downloads answer 502/504 now and then
+    for attempt in range(5):
+        try:
+            return urllib.request.urlopen(url, timeout=timeout).read()
+        except (urllib.error.URLError, TimeoutError) as e:
+            if attempt == 4 or (isinstance(e, urllib.error.HTTPError) and e.code < 500):
+                raise
+            print(f"retrying {url}: {e}", file=sys.stderr)
+            time.sleep(5 * (attempt + 1))
+
+sums = get(base + "osv-scanner_SHA256SUMS", 60).decode()
 want = next(line.split()[0] for line in sums.splitlines() if line.endswith(" " + name))
-data = urllib.request.urlopen(base + name, timeout=300).read()
+data = get(base + name, 300)
 if hashlib.sha256(data).hexdigest() != want:
     sys.exit(f"checksum mismatch for {name}")
 open(dest, "wb").write(data)
@@ -44,7 +55,7 @@ PY
     python3 -m venv "$bin/venv"
     venv_bin="$bin/venv/bin"; [ -d "$venv_bin" ] || venv_bin="$bin/venv/Scripts"
     src="${LW_SOURCE}/${LW_REF}.tar.gz"  # both packages from the same pinned source
-    "$venv_bin/python" -m pip install --quiet --disable-pip-version-check \
+    "$venv_bin/python" -m pip install --quiet --disable-pip-version-check --retries 5 \
       "limbowatch @ ${src}#subdirectory=packages/core" "limbowatch-cli @ ${src}#subdirectory=packages/cli"
     echo "$venv_bin" >> "$GITHUB_PATH"
     "$venv_bin/limbowatch" --version
