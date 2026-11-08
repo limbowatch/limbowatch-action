@@ -28,24 +28,34 @@ case "$mode" in
     mkdir -p "$bin"
     # OSV-Scanner, checked against its release's SHA-256 sums
     python3 - "$LW_OSV_VERSION" "$os" "$arch" "$bin/osv-scanner" <<'PY'
-import hashlib, sys, time, urllib.error, urllib.request
+import hashlib, json, sys, time, urllib.error, urllib.request
 ver, os_, arch, dest = sys.argv[1:]
 base = f"https://github.com/google/osv-scanner/releases/download/v{ver}/"
+api = f"https://api.github.com/repos/google/osv-scanner/releases/tags/v{ver}"
 name = f"osv-scanner_{os_}_{arch}" + (".exe" if os_ == "windows" else "")
 
-def get(url, timeout):  # GitHub's release downloads answer 502/504 now and then
-    for attempt in range(5):
-        try:
-            return urllib.request.urlopen(url, timeout=timeout).read()
-        except (urllib.error.URLError, TimeoutError) as e:
-            if attempt == 4 or (isinstance(e, urllib.error.HTTPError) and e.code < 500):
-                raise
-            print(f"retrying {url}: {e}", file=sys.stderr)
-            time.sleep(5 * (attempt + 1))
+def fetch(url, timeout, accept=None):
+    req = urllib.request.Request(url, headers={"Accept": accept} if accept else {})
+    return urllib.request.urlopen(req, timeout=timeout).read()
 
-sums = get(base + "osv-scanner_SHA256SUMS", 60).decode()
+def get(file, timeout):
+    """A release file. GitHub's release downloads answer 502/504 now and then, sometimes for minutes while its
+    API still serves the same asset: retry, then fall back to the API (the checksum is verified either way)."""
+    for attempt in range(3):
+        try:
+            return fetch(base + file, timeout)
+        except (urllib.error.URLError, TimeoutError) as e:
+            if isinstance(e, urllib.error.HTTPError) and e.code < 500:
+                raise
+            print(f"retrying {base + file}: {e}", file=sys.stderr)
+            time.sleep(5 * (attempt + 1))
+    asset = next(a for a in json.loads(fetch(api, 60))["assets"] if a["name"] == file)
+    print(f"downloading {file} through the GitHub API", file=sys.stderr)
+    return fetch(asset["url"], timeout, "application/octet-stream")
+
+sums = get("osv-scanner_SHA256SUMS", 60).decode()
 want = next(line.split()[0] for line in sums.splitlines() if line.endswith(" " + name))
-data = get(base + name, 300)
+data = get(name, 300)
 if hashlib.sha256(data).hexdigest() != want:
     sys.exit(f"checksum mismatch for {name}")
 open(dest, "wb").write(data)
