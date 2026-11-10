@@ -90,8 +90,9 @@ Exit codes: 0 passed, 1 a finding meets `fail-on`, 2 the scan couldn't run. `all
 
 ## More
 
-- Guide, all options and the GitLab CI/CD component: [docs/WATCHER.md](https://github.com/limbowatch/limbowatch/blob/main/docs/WATCHER.md)
-- Live tracker, feed and package checker: [limbo.watch](https://limbo.watch)
+- Guide and all options: [docs/WATCHER.md](https://github.com/limbowatch/limbowatch/blob/main/docs/WATCHER.md)
+- GitLab: the same scan as a CI/CD component, in the [GitLab CI/CD Catalog](https://gitlab.com/explore/catalog/limbowatch/limbowatch-component)
+- [limbo.watch](https://limbo.watch): the live tracker, the [limbo feed](https://limbo.watch/feed/) (OSV records) and a [package checker](https://limbo.watch/check/)
 - Issues and source: [limbowatch/limbowatch](https://github.com/limbowatch/limbowatch). This repository is a copy of its `integrations/action/`, made at each release; send changes there.
 
 Advisory data from published GitHub repository security advisories and the GitHub Advisory Database (CC BY 4.0). Code: Apache-2.0.
