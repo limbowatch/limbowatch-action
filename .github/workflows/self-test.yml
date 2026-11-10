@@ -1,0 +1,45 @@
+# Runs in limbowatch/limbowatch-action, where this action is the repository root. Its source is
+# integrations/action/ in limbowatch/limbowatch; the release process copies it here.
+name: self-test
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, install: image }
+          - { os: macos-latest, install: python }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - if: matrix.install == 'python'
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: A project to scan
+        # written here, not committed, so the dependency graph doesn't list a test fixture as a dependency
+        run: mkdir sample && printf 'scapy==2.7.0\n' > sample/requirements.txt
+      - id: limbo
+        uses: ./
+        with:
+          path: sample
+          fail-on: none
+          install: ${{ matrix.install }}
+      - name: Check the outputs and reports
+        env:
+          FINDINGS: ${{ steps.limbo.outputs.findings }}
+          FAILED: ${{ steps.limbo.outputs.failed }}
+          REPORT: ${{ steps.limbo.outputs.report }}
+        run: |
+          set -eu
+          [ "$FAILED" = false ] || { echo "fail-on none must not fail, got failed=$FAILED"; exit 1; }
+          [ "$FINDINGS" -ge 0 ]
+          for f in report.json report.md report.html report.sarif report.csv cyclonedx.json; do test -s "limbowatch-report/$f"; done
+          python3 -c "import json, sys; d = json.load(open(sys.argv[1])); assert d['schema_version'] == 1, d['schema_version']" "$REPORT"
+          echo "findings: $FINDINGS"
