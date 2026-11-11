@@ -1,5 +1,11 @@
 # Limbowatch
 
+[![Release](https://img.shields.io/github/v/release/limbowatch/limbowatch-action?include_prereleases&label=release)](https://github.com/limbowatch/limbowatch-action/releases)
+[![Self-test](https://github.com/limbowatch/limbowatch-action/actions/workflows/self-test.yml/badge.svg)](https://github.com/limbowatch/limbowatch-action/actions/workflows/self-test.yml)
+[![GitHub Marketplace](https://img.shields.io/badge/GitHub_Marketplace-limbowatch-2088ff?logo=github)](https://github.com/marketplace/actions/limbowatch)
+[![License](https://img.shields.io/github/license/limbowatch/limbowatch-action)](https://github.com/limbowatch/limbowatch-action/blob/main/LICENSE)
+
+
 Find dependencies affected by security advisories **in limbo**: published by their maintainers on GitHub, but not yet reviewed into the GitHub Advisory Database or OSV, so Dependabot, `npm audit`, OSV-Scanner and most other scanners can't see them yet. In October 2026, about 1 in 6 advisories behind 15 popular projects was in limbo, and the median wait for review was 23 days ([report](https://github.com/limbowatch/limbowatch/tree/main/research/2026-10-state-of-the-gap)).
 
 The action reads your lockfiles, checks every package against the [live limbo feed](https://limbo.watch/feed/), annotates each finding on its lockfile line, writes a job summary and reports, and can fail the build.
