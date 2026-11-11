@@ -4,7 +4,7 @@ Find dependencies affected by security advisories **in limbo**: published by the
 
 The action reads your lockfiles, checks every package against the [live limbo feed](https://limbo.watch/feed/), annotates each finding on its lockfile line, writes a job summary and reports, and can fail the build.
 
-> **Alpha.** Release 0.1.0a6. Options and formats may change before 0.1.0.
+> **Alpha.** Release 0.1.0a7. Options and formats may change before 0.1.0.
 
 ## Usage
 
@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: limbowatch/limbowatch-action@v0.1.0a6
+      - uses: limbowatch/limbowatch-action@v0.1.0a7
         with:
           fail-on: high
 ```
@@ -31,7 +31,7 @@ permissions:
   actions: read            # the upload action needs it in private repos
 steps:
   - uses: actions/checkout@v4
-  - uses: limbowatch/limbowatch-action@v0.1.0a6
+  - uses: limbowatch/limbowatch-action@v0.1.0a7
     with:
       fail-on: high
       sarif: limbowatch.sarif
@@ -43,7 +43,7 @@ steps:
 Keep the reports, or act on the result in later steps:
 
 ```yaml
-  - uses: limbowatch/limbowatch-action@v0.1.0a6
+  - uses: limbowatch/limbowatch-action@v0.1.0a7
     id: limbo
     with: { fail-on: none }
   - if: steps.limbo.outputs.findings != '0'
@@ -51,7 +51,7 @@ Keep the reports, or act on the result in later steps:
     with: { name: limbowatch-report, path: limbowatch-report/ }
 ```
 
-**Gitea and Forgejo Actions:** `uses: https://github.com/limbowatch/limbowatch-action@v0.1.0a6`. With `issues: gitea` and a `LIMBOWATCH_ISSUES_TOKEN` secret, it opens and updates one issue per finding from the default branch or a schedule (never in a public repo).
+**Gitea and Forgejo Actions:** `uses: https://github.com/limbowatch/limbowatch-action@v0.1.0a7`. With `issues: gitea` and a `LIMBOWATCH_ISSUES_TOKEN` secret, it opens and updates one issue per finding from the default branch or a schedule (never in a public repo).
 
 ## How it runs
 
@@ -77,7 +77,7 @@ Exit codes: 0 passed, 1 a finding meets `fail-on`, 2 the scan couldn't run. `all
 | `image` | the release's image | The Limbowatch image, pinned by digest. |
 | `osv-scanner-version` | `2.7.0` | OSV-Scanner release for `install: python`. |
 | `limbowatch-source` | GitHub archives | Where `<ref>.tar.gz` source archives are served, for `install: python`. |
-| `limbowatch-ref` | `v0.1.0a6` | Limbowatch release tag to install with `install: python`. |
+| `limbowatch-ref` | `v0.1.0a7` | Limbowatch release tag to install with `install: python`. |
 
 ## Outputs
 
