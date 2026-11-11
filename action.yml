@@ -50,7 +50,7 @@ inputs:
     default: auto
   image:
     description: The Limbowatch image, pinned by digest (built and attested by the Limbowatch repository).
-    default: ghcr.io/limbowatch/limbowatch:0.1.0a8@sha256:b90a82d9b0a66efc64da552f518c435fc1a73d25358b213c8e7aeba7d36a4478
+    default: ghcr.io/limbowatch/limbowatch:0.1.0a9@sha256:5ffea84f12248eac4253e9c23de0d56cfb30d7a81abc04238275dd8a3e176121
   osv-scanner-version:
     description: OSV-Scanner release to download with install "python" (checked against its SHA-256 sums).
     default: 2.7.0
@@ -59,7 +59,7 @@ inputs:
     default: https://github.com/limbowatch/limbowatch/archive
   limbowatch-ref:
     description: Limbowatch release tag to install with install "python".
-    default: v0.1.0a8
+    default: v0.1.0a9
 outputs:
   findings:
     description: Findings that aren't accepted (ignored).
