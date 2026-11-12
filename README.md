@@ -96,7 +96,7 @@ Exit codes: 0 passed, 1 a finding meets `fail-on`, 2 the scan couldn't run. `all
 | `extra-args` | | More `limbowatch scan` options. |
 | `install` | `auto` | `image`, `python` or `auto`. |
 | `image` | the release's image | The Limbowatch image, pinned by digest. |
-| `osv-scanner-version` | `2.7.0` | OSV-Scanner release for `install: python`. |
+| `osv-scanner-version` | `2.7.1` | OSV-Scanner release for `install: python`. |
 | `limbowatch-source` | GitHub archives | Where `<ref>.tar.gz` source archives are served, for `install: python`. |
 | `limbowatch-ref` | `v0.1.0a11` | Limbowatch release tag to install with `install: python`. |
 
