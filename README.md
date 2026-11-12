@@ -57,6 +57,21 @@ Keep the reports, or act on the result in later steps:
     with: { name: limbowatch-report, path: limbowatch-report/ }
 ```
 
+Keep one issue per finding up to date in a private repo (opened, commented on as the advisory moves, closed when you upgrade), with the job's own token. Issues are written from the default branch or a schedule only, never in a public repo, and at most 50 new ones a run. The `concurrency` group keeps two runs from overlapping: GitHub lists a new issue a few seconds late.
+
+```yaml
+on: { push: { branches: [main] }, schedule: [{ cron: "17 6 * * *" }] }
+permissions: { contents: read, issues: write }
+concurrency: limbowatch
+jobs:
+  limbowatch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: limbowatch/limbowatch-action@v0.1.0a9
+        with: { fail-on: none, issues: github }
+```
+
 **Gitea and Forgejo Actions:** `uses: https://github.com/limbowatch/limbowatch-action@v0.1.0a9`. With `issues: gitea` and a `LIMBOWATCH_ISSUES_TOKEN` secret, it opens and updates one issue per finding from the default branch or a schedule (never in a public repo).
 
 ## How it runs
@@ -76,8 +91,8 @@ Exit codes: 0 passed, 1 a finding meets `fail-on`, 2 the scan couldn't run. `all
 | `sarif` | | Write SARIF to this file, for GitHub code scanning. |
 | `annotations` | `true` | Annotate each finding on its lockfile line in the pull request. |
 | `reports` | `limbowatch-report` | Directory for report.json, report.md, report.html, report.sarif, report.csv and cyclonedx.json; empty for none. |
-| `issues` | | `gitea`: open and update issues in this repo (Gitea or Forgejo). |
-| `issues-token` | | Token that can write issues here (pass a secret). |
+| `issues` | | `github` (needs `permissions: issues: write`) or `gitea` (Gitea or Forgejo): open and update issues in this repo from the default branch or a schedule. Never in a public repo unless `extra-args` has `--issues-public`. |
+| `issues-token` | | Token that can write issues here (pass a secret); for `github`, the job's token by default. |
 | `extra-args` | | More `limbowatch scan` options. |
 | `install` | `auto` | `image`, `python` or `auto`. |
 | `image` | the release's image | The Limbowatch image, pinned by digest. |
