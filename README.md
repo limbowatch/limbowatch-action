@@ -92,7 +92,7 @@ Exit codes: 0 passed, 1 a finding meets `fail-on`, 2 the scan couldn't run. `all
 | `annotations` | `true` | Annotate each finding on its lockfile line in the pull request. |
 | `reports` | `limbowatch-report` | Directory for report.json, report.md, report.html, report.sarif, report.csv and cyclonedx.json; empty for none. |
 | `issues` | | `github` (needs `permissions: issues: write`) or `gitea` (Gitea or Forgejo): open and update issues in this repo on a push to the default branch, a schedule or a manual run. Never in a public repo unless `extra-args` has `--issues-public`. |
-| `issues-token` | | Token that can write issues here (pass a secret); for `github`, the job's token by default. |
+| `issues-token` | | Token that can write issues here (pass a secret); for `github`, the job's token by default. A personal token's user needs write access: GitHub drops a new issue's labels otherwise, so nothing is opened and the step says why. |
 | `extra-args` | | More `limbowatch scan` options. |
 | `install` | `auto` | `image`, `python` or `auto`. |
 | `image` | the release's image | The Limbowatch image, pinned by digest. |
