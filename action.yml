@@ -34,8 +34,8 @@ inputs:
     default: limbowatch-report
   issues:
     description: >-
-      "github" to open and update one issue per finding in this repo from the default branch or a schedule,
-      with the job's token (needs `permissions: issues: write`); "gitea" on Gitea or Forgejo (needs
+      "github" to open and update one issue per finding in this repo on a push to the default branch, a schedule
+      or a manual run, with the job's token (needs `permissions: issues: write`); "gitea" on Gitea or Forgejo (needs
       issues-token). Never opens issues in a public repo unless extra-args has --issues-public.
     default: ""
   issues-token:

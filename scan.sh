@@ -28,21 +28,26 @@ if [ -n "$LW_REPORTS" ]; then
          -o "sarif=$LW_REPORTS/report.sarif" -o "csv=$LW_REPORTS/report.csv" -o "cyclonedx=$LW_REPORTS/cyclonedx.json"
 fi
 branch="${GITHUB_REF_NAME:-}"
+event="${GITHUB_EVENT_NAME:-}"
 case "$LW_ISSUES" in
   "" ) ;;
   github|gitea)
-    # issues follow the default branch: never from a pull request or a feature branch
-    if [ "$branch" = "$LW_DEFAULT_BRANCH" ] || [ "${GITHUB_EVENT_NAME:-}" = "schedule" ]; then
+    # Issues follow the default branch: a push to it, a schedule or a manual run. Never from a pull request,
+    # including pull_request_target, issue_comment or workflow_run, which run on the default branch but may scan
+    # a fork's files.
+    if [ "$event" = schedule ] || { [ "$branch" = "$LW_DEFAULT_BRANCH" ] && { [ "$event" = push ] || [ "$event" = workflow_dispatch ]; }; }; then
       set -- "$@" --issues "$LW_ISSUES"
     else
-      echo "Limbowatch: issues are updated from the default branch or a schedule only; not on $branch."
+      echo "Limbowatch: issues are updated on a push to the default branch, a schedule or a manual run; not on $event to $branch."
     fi ;;
   * ) echo "::error title=Limbowatch::issues wants github or gitea, got '$LW_ISSUES'"; exit 2 ;;
 esac
 status=0
+rm -f "$tmp/limbowatch.json" "$tmp/limbowatch.md" "$tmp/limbowatch.annotations"  # an earlier step's, in one job
 # shellcheck disable=SC2086 # LW_EXTRA is a list of options
 run limbowatch scan "$LW_PATH" "$@" $LW_EXTRA || status=$?
-if [ "$status" -le 1 ] && [ -f "$tmp/limbowatch.json" ]; then
+# exit 2 with a report: the scan ran but issues couldn't be updated; its findings are still shown
+if [ -f "$tmp/limbowatch.json" ]; then
   if [ "$LW_ANNOTATIONS" = "true" ] && [ -s "$tmp/limbowatch.annotations" ]; then
     echo "::group::Annotations: one per affected package"
     cat "$tmp/limbowatch.annotations"
