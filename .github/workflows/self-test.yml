@@ -7,6 +7,7 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+  issues: read  # the issues dry run lists this repo's issues
 jobs:
   test:
     strategy:
@@ -43,3 +44,14 @@ jobs:
           for f in report.json report.md report.html report.sarif report.csv cyclonedx.json; do test -s "limbowatch-report/$f"; done
           python3 -c "import json, sys; d = json.load(open(sys.argv[1])); assert d['schema_version'] == 1, d['schema_version']" "$REPORT"
           echo "findings: $FINDINGS"
+      - name: Issues on GitHub, as a dry run
+        # this repo is public, so nothing would be opened; the run must still read the tracker and pass
+        if: github.event_name != 'pull_request'
+        uses: ./
+        with:
+          path: sample
+          fail-on: none
+          install: ${{ matrix.install }}
+          reports: ""
+          issues: github
+          extra-args: --issues-dry-run

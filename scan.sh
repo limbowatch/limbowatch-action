@@ -12,7 +12,7 @@ if [ "${LW_MODE:-python}" = "image" ]; then
     docker run --rm -i --user "$(id -u):$(id -g)" -e HOME="$tmp/limbowatch-home" \
       -v "$ws:$ws" -v "$tmp:$tmp" -w "$PWD" \
       -e LIMBOWATCH_GITHUB_TOKEN -e GITHUB_TOKEN -e LIMBOWATCH_ISSUES_TOKEN -e NVD_API_KEY \
-      -e CI -e GITHUB_ACTIONS -e GITHUB_REPOSITORY -e GITHUB_SERVER_URL -e NO_COLOR -e FORCE_COLOR \
+      -e CI -e GITHUB_ACTIONS -e GITHUB_REPOSITORY -e GITHUB_SERVER_URL -e GITHUB_API_URL -e NO_COLOR -e FORCE_COLOR \
       "$LW_IMAGE" "$@"
   }
 else
@@ -28,9 +28,17 @@ if [ -n "$LW_REPORTS" ]; then
          -o "sarif=$LW_REPORTS/report.sarif" -o "csv=$LW_REPORTS/report.csv" -o "cyclonedx=$LW_REPORTS/cyclonedx.json"
 fi
 branch="${GITHUB_REF_NAME:-}"
-if [ "$LW_ISSUES" = "gitea" ] && { [ "$branch" = "$LW_DEFAULT_BRANCH" ] || [ "${GITHUB_EVENT_NAME:-}" = "schedule" ]; }; then
-  set -- "$@" --issues gitea
-fi
+case "$LW_ISSUES" in
+  "" ) ;;
+  github|gitea)
+    # issues follow the default branch: never from a pull request or a feature branch
+    if [ "$branch" = "$LW_DEFAULT_BRANCH" ] || [ "${GITHUB_EVENT_NAME:-}" = "schedule" ]; then
+      set -- "$@" --issues "$LW_ISSUES"
+    else
+      echo "Limbowatch: issues are updated from the default branch or a schedule only; not on $branch."
+    fi ;;
+  * ) echo "::error title=Limbowatch::issues wants github or gitea, got '$LW_ISSUES'"; exit 2 ;;
+esac
 status=0
 # shellcheck disable=SC2086 # LW_EXTRA is a list of options
 run limbowatch scan "$LW_PATH" "$@" $LW_EXTRA || status=$?
