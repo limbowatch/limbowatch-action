@@ -64,9 +64,15 @@ PY
     echo "$bin" >> "$GITHUB_PATH"
     python3 -m venv "$bin/venv"
     venv_bin="$bin/venv/bin"; [ -d "$venv_bin" ] || venv_bin="$bin/venv/Scripts"
-    src="${LW_SOURCE}/${LW_REF}.tar.gz"  # both packages from the same pinned source
-    "$venv_bin/python" -m pip install --quiet --disable-pip-version-check --retries 5 \
-      "limbowatch @ ${src}#subdirectory=packages/core" "limbowatch-cli @ ${src}#subdirectory=packages/cli"
+    # Every dependency and the build backend from requirements.txt, each checked against its hashes (uv.lock's)
+    pip_q() { "$venv_bin/python" -m pip install --quiet --disable-pip-version-check --retries 5 "$@"; }
+    pip_q --require-hashes -r "$(dirname "$0")/requirements.txt"
+    # Limbowatch itself, both packages from the same release's source, built with that backend: nothing unpinned is
+    # fetched. (Another limbowatch-ref may need a dependency the file lacks; pip then installs that one unpinned.)
+    src="${LW_SOURCE}/${LW_REF}.tar.gz"
+    pip_q --no-build-isolation "limbowatch @ ${src}#subdirectory=packages/core" \
+      "limbowatch-cli @ ${src}#subdirectory=packages/cli"
+    "$venv_bin/python" -m pip check --disable-pip-version-check
     echo "$venv_bin" >> "$GITHUB_PATH"
     "$venv_bin/limbowatch" --version
     ;;

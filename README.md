@@ -76,7 +76,7 @@ jobs:
 
 ## How it runs
 
-On a Linux runner with Docker, it runs the Limbowatch image, pinned by digest and attested by the [Limbowatch repository](https://github.com/limbowatch/limbowatch). On macOS or Windows, or when the job runs in a container, it installs Limbowatch with pip from the same release (Python 3.12 or later, e.g. `actions/setup-python`) and OSV-Scanner checked against its SHA-256 sums. `install: auto | image | python` picks one explicitly.
+On a Linux runner with Docker, it runs the Limbowatch image, pinned by digest and attested by the [Limbowatch repository](https://github.com/limbowatch/limbowatch). On macOS or Windows, or when the job runs in a container, it installs Limbowatch with pip from the same release (Python 3.12 or later, e.g. `actions/setup-python`), every dependency checked against the hashes in [requirements.txt](requirements.txt), and OSV-Scanner checked against its SHA-256 sums. `install: auto | image | python` picks one explicitly.
 
 Exit codes: 0 passed, 1 a finding meets `fail-on`, 2 the scan couldn't run. `allow-failure: true` passes the step with a warning when findings meet `fail-on`; a scan that couldn't run still fails.
 
