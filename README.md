@@ -80,6 +80,18 @@ On a Linux runner with Docker, it runs the Limbowatch image, pinned by digest an
 
 Exit codes: 0 passed, 1 a finding meets `fail-on`, 2 the scan couldn't run. `allow-failure: true` passes the step with a warning when findings meet `fail-on`; a scan that couldn't run still fails.
 
+## Security and data
+
+The action runs in your job; it doesn't upload files or source code.
+
+- **Reads** your lockfiles and SBOMs (OSV-Scanner, offline) and, for C/C++, the build files that declare upstream sources.
+- **Sends** package names and versions to public services (deps.dev, Maven Central, GitHub, CVE Services, OSV) to find out whether a dependency is affected. limbo.watch learns nothing: the feed is downloaded whole. With `extra-args: --no-upstream --no-resolve-maven`, the scan contacts limbo.watch and nothing else, at the cost of the checks those lookups make.
+- **Needs** no secrets and only `permissions: contents: read`. It gets a token only when `issues` is set.
+- **Verify it:** pin `uses:` to a commit SHA; the default image is pinned by digest and attested (`gh attestation verify oci://ghcr.io/limbowatch/limbowatch:<tag> --owner limbowatch`).
+- **Lock it down:** check out only the dependency files (sparse checkout), or pass your own SBOM with `extra-args: --sbom <file>`; run it in a job of its own; allow only the hosts you chose with an egress filter.
+
+Every host, what it receives and the option that turns it off: [Security and data](https://github.com/limbowatch/limbowatch/blob/main/docs/WATCHER.md#security-and-data).
+
 ## Inputs
 
 | Input | Default | What it does |
