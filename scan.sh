@@ -11,7 +11,7 @@ if [ "${LW_MODE:-python}" = "image" ]; then
   run() {
     docker run --rm -i --user "$(id -u):$(id -g)" -e HOME="$tmp/limbowatch-home" \
       -v "$ws:$ws" -v "$tmp:$tmp" -w "$PWD" \
-      -e LIMBOWATCH_GITHUB_TOKEN -e GITHUB_TOKEN -e LIMBOWATCH_ISSUES_TOKEN -e NVD_API_KEY \
+      -e LIMBOWATCH_GITHUB_TOKEN -e GITHUB_TOKEN -e LIMBOWATCH_ISSUES_TOKEN -e NVD_API_KEY -e LIMBOWATCH_VERIFY_FEED \
       -e CI -e GITHUB_ACTIONS -e GITHUB_REPOSITORY -e GITHUB_SERVER_URL -e GITHUB_API_URL -e NO_COLOR -e FORCE_COLOR \
       "$LW_IMAGE" "$@"
   }
