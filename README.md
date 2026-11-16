@@ -72,7 +72,7 @@ jobs:
         with: { fail-on: none, issues: github }
 ```
 
-**Gitea and Forgejo Actions:** `uses: https://github.com/limbowatch/limbowatch-action@v0.1.0a15`. With `issues: gitea` and a `LIMBOWATCH_ISSUES_TOKEN` secret, it opens and updates one issue per finding on a push to the default branch, a schedule or a manual run (never in a public repo).
+**Gitea and Forgejo Actions:** `uses: https://github.com/limbowatch/limbowatch-action@v0.1.0a15`. With `issues: gitea` and a `LIMBOWATCH_ISSUES_TOKEN` secret, it opens and updates one issue per finding on a push to the default branch, a schedule or a manual run (never in a public repo). The token is never sent over plain `http://` to another machine: if your Gitea or Forgejo is served only over http (`GITHUB_SERVER_URL` is `http://…` and not localhost), the step stops and says so; set `LIMBOWATCH_ALLOW_INSECURE_HTTP: "1"` in the step's `env` to send it anyway, readable to anyone on that network.
 
 ## How it runs
 
