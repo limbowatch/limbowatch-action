@@ -11,7 +11,7 @@ if [ "${LW_MODE:-python}" = "image" ]; then
   run() {
     docker run --rm -i --user "$(id -u):$(id -g)" -e HOME="$tmp/limbowatch-home" \
       -v "$ws:$ws" -v "$tmp:$tmp" -w "$PWD" \
-      -e LIMBOWATCH_GITHUB_TOKEN -e GITHUB_TOKEN -e LIMBOWATCH_ISSUES_TOKEN -e NVD_API_KEY -e LIMBOWATCH_VERIFY_FEED \
+      -e LIMBOWATCH_GITHUB_TOKEN -e GITHUB_TOKEN -e LIMBOWATCH_ISSUES_TOKEN -e NVD_API_KEY -e LIMBOWATCH_VERIFY_FEED -e LIMBOWATCH_ALLOW_INSECURE_HTTP \
       -e CI -e GITHUB_ACTIONS -e GITHUB_REPOSITORY -e GITHUB_SERVER_URL -e GITHUB_API_URL -e NO_COLOR -e FORCE_COLOR \
       "$LW_IMAGE" "$@"
   }
@@ -44,8 +44,10 @@ case "$LW_ISSUES" in
 esac
 status=0
 rm -f "$tmp/limbowatch.json" "$tmp/limbowatch.md" "$tmp/limbowatch.annotations"  # an earlier step's, in one job
-# shellcheck disable=SC2086 # LW_EXTRA is a list of options
+# shellcheck disable=SC2086 # LW_EXTRA is a list of options; set -f passes a * or ? in it as typed
+set -f
 run limbowatch scan "$LW_PATH" "$@" $LW_EXTRA || status=$?
+set +f
 # exit 2 with a report: the scan ran but issues couldn't be updated; its findings are still shown
 if [ -f "$tmp/limbowatch.json" ]; then
   if [ "$LW_ANNOTATIONS" = "true" ] && [ -s "$tmp/limbowatch.annotations" ]; then
