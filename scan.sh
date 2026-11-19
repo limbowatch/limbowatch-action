@@ -3,29 +3,76 @@
 # outputs). Inputs arrive as LW_* environment variables; LW_MODE (from install.sh) says image or python.
 set -eu
 tmp="${RUNNER_TEMP:-/tmp}"
+box="$tmp/limbowatch"   # the scan's own directories: home, cache, out (its results for this script)
+out="$box/out"
+rm -rf "$out" "$box/reports"  # an earlier step's, in one job
+mkdir -p "$box/home" "$box/cache" "$out"
+
+# A file the scan wrote, safe for this script to read: a regular file, not a symlink to one of the runner's.
+is_file() { [ -f "$1" ] && [ ! -L "$1" ]; }
+# Copy the regular files under $1 to $2. Symlinks are skipped, not followed, and find doesn't descend into
+# symlinked directories.
+copy_files() {
+  (cd "$1" && find . -type f -print0) | while IFS= read -r -d '' f; do
+    mkdir -p "$2/$(dirname "$f")" && cp -- "$1/$f" "$2/$f"
+  done
+}
+
+reports_dir=""     # image mode: where the image's reports are copied to afterwards
+rep="$LW_REPORTS"  # where the scan writes them
 if [ "${LW_MODE:-python}" = "image" ]; then
-  # The workspace and the runner's temp directory are mounted at the same paths, so every path means the same
-  # inside and out. The runner's user, so files it writes aren't owned by root (self-hosted runners clean up).
+  # Isolated: a compromised image must not be able to reach the runner. So it never sees the runner's temp
+  # directory (GITHUB_ENV, GITHUB_PATH and GITHUB_OUTPUT are files there, and writing them runs code in later
+  # steps). The checkout is read-only, so it can't change files that later steps run. Its root filesystem is
+  # read-only, it has no capabilities, and it gets no new privileges. It writes only to its own directories, and
+  # this script copies regular files out of them. Paths are the same inside and out. It runs as the runner's
+  # user, so this script can read and remove what it writes.
   ws="${GITHUB_WORKSPACE:-$PWD}"
-  mkdir -p "$tmp/limbowatch-home"
+  mounts=(-v "$ws:$ws:ro" -v "$box/home:$box/home" -v "$box/cache:$box/cache" -v "$out:$out")
+  if [ -n "$LW_REPORTS" ]; then
+    # The reports directory is the one place in the checkout the scan can write (extra-args can put --state,
+    # --audit-log or more -o files there). The image writes to a directory of its own mounted over it, and what it
+    # wrote is copied back afterwards.
+    mkdir -p "$LW_REPORTS" "$box/reports"
+    reports_dir="$(cd "$LW_REPORTS" && pwd)"
+    case "$ws/:$PWD/" in
+      "$reports_dir"/*|*:"$reports_dir"/*)
+        # the checkout itself, or above it: mounting over it would hide the project, so the reports are written
+        # in the scan's own directory and copied out
+        rep="$box/reports"
+        mounts+=(-v "$box/reports:$box/reports") ;;
+      *)
+        copy_files "$reports_dir" "$box/reports"   # a --state file kept there by an earlier run
+        mounts+=(-v "$box/reports:$reports_dir") ;;
+    esac
+  fi
+  # Workflow commands are off while the image runs: nothing it prints can set an output or end this step's
+  # grouping. The token is random and the image never sees it.
+  token="limbowatch-$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
   run() {
-    docker run --rm -i --user "$(id -u):$(id -g)" -e HOME="$tmp/limbowatch-home" \
-      -v "$ws:$ws" -v "$tmp:$tmp" -w "$PWD" \
+    local rc=0
+    echo "::stop-commands::$token"
+    docker run --rm -i --user "$(id -u):$(id -g)" \
+      --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges --pids-limit 1024 \
+      -e HOME="$box/home" "${mounts[@]}" -w "$PWD" \
       -e LIMBOWATCH_GITHUB_TOKEN -e GITHUB_TOKEN -e LIMBOWATCH_ISSUES_TOKEN -e NVD_API_KEY -e LIMBOWATCH_VERIFY_FEED -e LIMBOWATCH_FEED -e LIMBOWATCH_ALLOW_INSECURE_HTTP \
+      -e LIMBOWATCH_AUDIT_LOG -e LIMBOWATCH_SHOW_NETWORK \
       -e CI -e GITHUB_ACTIONS -e GITHUB_REPOSITORY -e GITHUB_SERVER_URL -e GITHUB_API_URL -e NO_COLOR -e FORCE_COLOR \
-      "$LW_IMAGE" "$@"
+      "$LW_IMAGE" "$@" || rc=$?
+    echo "::$token::"
+    return "$rc"
   }
 else
   run() { "$@"; }
 fi
 
-set -- --cache "$tmp/limbowatch-cache" --fail-on "$LW_FAIL_ON" \
-       -o table -o "json=$tmp/limbowatch.json" -o "markdown=$tmp/limbowatch.md" -o "github=$tmp/limbowatch.annotations"
+set -- --cache "$box/cache" --fail-on "$LW_FAIL_ON" \
+       -o table -o "json=$out/limbowatch.json" -o "markdown=$out/limbowatch.md" -o "github=$out/limbowatch.annotations"
 [ "$LW_FAIL_ON_UNKNOWN" = "true" ] || set -- "$@" --no-fail-on-unknown
-[ -z "$LW_SARIF" ] || set -- "$@" -o "sarif=$LW_SARIF"
+[ -z "$LW_SARIF" ] || set -- "$@" -o "sarif=$out/limbowatch.sarif"
 if [ -n "$LW_REPORTS" ]; then
-  set -- "$@" -o "json=$LW_REPORTS/report.json" -o "markdown=$LW_REPORTS/report.md" -o "html=$LW_REPORTS/report.html" \
-         -o "sarif=$LW_REPORTS/report.sarif" -o "csv=$LW_REPORTS/report.csv" -o "cyclonedx=$LW_REPORTS/cyclonedx.json"
+  set -- "$@" -o "json=$rep/report.json" -o "markdown=$rep/report.md" -o "html=$rep/report.html" \
+         -o "sarif=$rep/report.sarif" -o "csv=$rep/report.csv" -o "cyclonedx=$rep/cyclonedx.json"
 fi
 branch="${GITHUB_REF_NAME:-}"
 event="${GITHUB_EVENT_NAME:-}"
@@ -43,31 +90,40 @@ case "$LW_ISSUES" in
   * ) echo "::error title=Limbowatch::issues wants github or gitea, got '$LW_ISSUES'"; exit 2 ;;
 esac
 status=0
-rm -f "$tmp/limbowatch.json" "$tmp/limbowatch.md" "$tmp/limbowatch.annotations"  # an earlier step's, in one job
 # shellcheck disable=SC2086 # LW_EXTRA is a list of options; set -f passes a * or ? in it as typed
 set -f
 run limbowatch scan "$LW_PATH" "$@" $LW_EXTRA || status=$?
 set +f
+[ -z "$reports_dir" ] || copy_files "$box/reports" "$reports_dir"
+if [ -n "$LW_SARIF" ] && is_file "$out/limbowatch.sarif"; then
+  mkdir -p "$(dirname "$LW_SARIF")" && cp -- "$out/limbowatch.sarif" "$LW_SARIF"
+fi
 # exit 2 with a report: the scan ran but issues couldn't be updated; its findings are still shown
-if [ -f "$tmp/limbowatch.json" ]; then
-  if [ "$LW_ANNOTATIONS" = "true" ] && [ -s "$tmp/limbowatch.annotations" ]; then
+if is_file "$out/limbowatch.json"; then
+  if [ "$LW_ANNOTATIONS" = "true" ] && is_file "$out/limbowatch.annotations" && [ -s "$out/limbowatch.annotations" ]; then
     echo "::group::Annotations: one per affected package"
-    cat "$tmp/limbowatch.annotations"
+    # annotation commands only, one per line
+    grep -E '^::(error|warning|notice) [^:]*::' "$out/limbowatch.annotations" || true
     echo "::endgroup::"
   fi
-  [ -z "${GITHUB_STEP_SUMMARY:-}" ] || cat "$tmp/limbowatch.md" >> "$GITHUB_STEP_SUMMARY"
+  if [ -n "${GITHUB_STEP_SUMMARY:-}" ] && is_file "$out/limbowatch.md"; then cat "$out/limbowatch.md" >> "$GITHUB_STEP_SUMMARY"; fi
   # outputs, then the verdict again as the step's last line, below the annotations
-  run python3 - "$tmp/limbowatch.json" "$tmp/limbowatch.outputs" <<'PY'
+  run python3 - "$out/limbowatch.json" "$out/limbowatch.outputs" <<'PY' >/dev/null
 import json, sys
 doc = json.load(open(sys.argv[1]))
 gate = doc["gate"]
-with open(sys.argv[2], "w") as out:
-    out.write(f"findings={doc['summary']['findings']}\nfailing={gate['failing_findings']}\n")
-    out.write(f"failed={'true' if gate['failed'] else 'false'}\n")
-print(("FAILED" if gate["failed"] else "PASSED") + "  " + gate["message"])
+with open(sys.argv[2], "w") as f:
+    f.write(f"findings={doc['summary']['findings']}\nfailing={gate['failing_findings']}\n")
+    f.write(f"failed={'true' if gate['failed'] else 'false'}\n")
+    f.write("verdict=" + ("FAILED" if gate["failed"] else "PASSED") + "  " + " ".join(gate["message"].split()) + "\n")
 PY
-  cat "$tmp/limbowatch.outputs" >> "$GITHUB_OUTPUT"
-  [ -z "$LW_REPORTS" ] || echo "report=$LW_REPORTS/report.json" >> "$GITHUB_OUTPUT"
+  if is_file "$out/limbowatch.outputs"; then
+    # only well-formed values reach GITHUB_OUTPUT: a number, true or false
+    grep -E '^(findings|failing)=[0-9]+$|^failed=(true|false)$' "$out/limbowatch.outputs" >> "$GITHUB_OUTPUT" || true
+    [ -z "$LW_REPORTS" ] || echo "report=$LW_REPORTS/report.json" >> "$GITHUB_OUTPUT"
+    # a line that starts with PASSED or FAILED can't be a workflow command
+    sed -nE 's/^verdict=((PASSED|FAILED)  .*)$/\1/p' "$out/limbowatch.outputs" | head -1
+  fi
 fi
 if [ "$status" = 1 ] && [ "$LW_ALLOW_FAILURE" = "true" ]; then
   echo "::warning title=Limbowatch::Findings at or above fail-on; allow-failure is on, so the step passes."

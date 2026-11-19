@@ -18,7 +18,14 @@ case "$mode" in
   image)
     echo "Limbowatch image: $LW_IMAGE"
     docker pull --quiet "$LW_IMAGE" >/dev/null
-    docker run --rm "$LW_IMAGE" sh -c 'limbowatch --version && osv-scanner --version | head -1'
+    # isolated as in scan.sh: no mounts, no network, and workflow commands off while it prints
+    token="limbowatch-$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
+    echo "::stop-commands::$token"
+    rc=0
+    docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges "$LW_IMAGE" \
+      sh -c 'limbowatch --version && osv-scanner --version | head -1' || rc=$?
+    echo "::$token::"
+    [ "$rc" = 0 ] || exit "$rc"
     ;;
   python)
     command -v python3 >/dev/null 2>&1 || { echo "install: python needs Python 3.12 or later on the runner (actions/setup-python)"; exit 2; }
