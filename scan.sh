@@ -18,26 +18,30 @@ copy_files() {
   done
 }
 REPORT_FILES="report.json report.md report.html report.sarif report.csv cyclonedx.json"
-# Copy what the image wrote back into the checkout ($1 to $2; then, optionally, the only names to copy). It may be
-# compromised and later steps may run what's in the checkout, so: regular files only, never a file git tracks,
-# nothing under .git, no name with a control character.
+# Copy what the image wrote into the reports directory back to it ($1 to $2). The image may be compromised and later
+# steps may run what's in the checkout, so only regular files directly in the directory, no dotfiles, no names with a
+# control character, never onto a symlink or a file git tracks. Any such file only when git can read the directory
+# and tracks nothing in it (a directory for reports alone); otherwise, as for `reports: .`, only the report files.
 copy_back() {
-  local from="$1" to="$2"
-  shift 2
-  (cd "$from" && find . -type f -print0) | while IFS= read -r -d '' f; do
+  local from="$1" to="$2" only="$REPORT_FILES" listed
+  if listed="$(git -C "$to" ls-files -- . 2>/dev/null)" && [ -z "$listed" ]; then only=""; fi
+  (cd "$from" && find . -mindepth 1 -maxdepth 1 -type f -print0) | while IFS= read -r -d '' f; do
     f="${f#./}"
-    case "$f" in *[[:cntrl:]]* | .git | .git/* | */.git | */.git/*) continue ;; esac
-    if [ $# -gt 0 ]; then case " $* " in *" $f "*) ;; *) continue ;; esac; fi
-    if git -C "$to" ls-files --error-unmatch -- "$f" >/dev/null 2>&1; then
+    case "$f" in *[[:cntrl:]]* | .*) continue ;; esac
+    if [ -n "$only" ]; then case " $only " in *" $f "*) ;; *) continue ;; esac; fi
+    if [ -L "$to/$f" ] || { [ -e "$to/$f" ] && [ ! -f "$to/$f" ]; }; then continue; fi
+    # exit 1 is "not tracked"; 0 is tracked, and anything else means git couldn't tell
+    local rc=0
+    git -C "$to" ls-files --error-unmatch -- "$f" >/dev/null 2>&1 || rc=$?
+    if [ "$rc" != 1 ] && { [ "$rc" = 0 ] || [ -z "$only" ]; }; then
       echo "::warning title=Limbowatch::The scan wrote a file the repository tracks in the reports directory; it wasn't copied."
       continue
     fi
-    mkdir -p "$to/$(dirname "$f")" && cp -- "$from/$f" "$to/$f"
+    cp -- "$from/$f" "$to/$f"
   done
 }
 
 reports_dir=""     # image mode: where the image's reports are copied to afterwards
-report_names=""    # and, when that's the checkout itself, the only files copied
 rep="$LW_REPORTS"  # where the scan writes them
 if [ "${LW_MODE:-python}" = "image" ]; then
   # Isolated: a compromised image must not be able to reach the runner. So it never sees the runner's temp
@@ -59,7 +63,6 @@ if [ "${LW_MODE:-python}" = "image" ]; then
         # the checkout itself, or above it: mounting over it would hide the project, so the reports are written
         # in the scan's own directory and only they are copied out
         rep="$box/reports"
-        report_names="$REPORT_FILES"
         mounts+=(-v "$box/reports:$box/reports") ;;
       *)
         copy_files "$reports_dir" "$box/reports"   # a --state file kept there by an earlier run
@@ -114,8 +117,7 @@ status=0
 set -f
 run limbowatch scan "$LW_PATH" "$@" $LW_EXTRA || status=$?
 set +f
-# shellcheck disable=SC2086 # report_names is a list of names, or empty for all
-[ -z "$reports_dir" ] || copy_back "$box/reports" "$reports_dir" $report_names
+[ -z "$reports_dir" ] || copy_back "$box/reports" "$reports_dir"
 if [ -n "$LW_SARIF" ] && is_file "$out/limbowatch.sarif"; then
   mkdir -p "$(dirname "$LW_SARIF")" && cp -- "$out/limbowatch.sarif" "$LW_SARIF"
 fi
