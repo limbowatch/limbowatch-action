@@ -88,6 +88,7 @@ The action runs in your job; it doesn't upload files or source code.
 - **Sends** package names and versions to public services (deps.dev, Maven Central, GitHub, CVE Services, OSV) to find out whether a dependency is affected. limbo.watch learns nothing: the feed is downloaded whole. With `extra-args: --no-upstream --no-resolve-maven`, the scan contacts limbo.watch and nothing else, at the cost of the checks those lookups make.
 - **Needs** no secrets and only `permissions: contents: read`. It gets a token only when `issues` is set.
 - **Verify it:** pin `uses:` to a commit SHA; the default image is pinned by digest and attested (`gh attestation verify oci://ghcr.io/limbowatch/limbowatch:<tag> --owner limbowatch`).
+- **Record it:** `extra-args: --audit-log limbowatch-network.jsonl` writes every URL the scan calls (method, status, time; never a secret) to a file you can upload as an artifact; `--show-network` prints them in the log.
 - **Lock it down:** check out only the dependency files (sparse checkout), or pass your own SBOM with `extra-args: --sbom <file>`; run it in a job of its own; allow only the hosts you chose with an egress filter.
 
 Every host, what it receives and the option that turns it off: [Security and data](https://github.com/limbowatch/limbowatch/blob/main/docs/WATCHER.md#security-and-data).
