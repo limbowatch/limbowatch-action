@@ -22,26 +22,34 @@ REPORT_FILES="report.json report.md report.html report.sarif report.csv cycloned
 # steps may run what's in the checkout, so only regular files directly in the directory, no dotfiles, no names with a
 # control character, never onto a symlink or a file git tracks. Any such file only when git can read the directory
 # and tracks nothing in it (a directory for reports alone); otherwise, as for `reports: .`, only the report files.
-copy_back() {
-  local from="$1" to="$2" only="$REPORT_FILES" listed
-  if listed="$(git -C "$to" ls-files -- . 2>/dev/null)" && [ -z "$listed" ]; then only=""; fi
-  (cd "$from" && find . -mindepth 1 -maxdepth 1 -type f -print0) | while IFS= read -r -d '' f; do
+# Prints how many files it didn't copy; see copy_back.
+_copy_back_files() {
+  local from="$1" to="$2" only="$3" f rc n=0
+  while IFS= read -r -d '' f; do
     f="${f#./}"
-    case "$f" in *[[:cntrl:]]* | .*) continue ;; esac
-    if [ -n "$only" ]; then case " $only " in *" $f "*) ;; *) continue ;; esac; fi
-    if [ -L "$to/$f" ] || { [ -e "$to/$f" ] && [ ! -f "$to/$f" ]; }; then continue; fi
+    case "$f" in */* | *[[:cntrl:]]* | .*) n=$((n + 1)); continue ;; esac
+    if [ -L "$from/$f" ] || [ ! -f "$from/$f" ]; then n=$((n + 1)); continue; fi  # never follow the image's links
+    if [ -n "$only" ]; then case " $only " in *" $f "*) ;; *) n=$((n + 1)); continue ;; esac; fi
+    if [ -L "$to/$f" ] || { [ -e "$to/$f" ] && [ ! -f "$to/$f" ]; }; then n=$((n + 1)); continue; fi
     # exit 1 is "not tracked"; 0 is tracked, and anything else means git couldn't tell
-    local rc=0
+    rc=0
     git -C "$to" ls-files --error-unmatch -- "$f" >/dev/null 2>&1 || rc=$?
-    if [ "$rc" != 1 ] && { [ "$rc" = 0 ] || [ -z "$only" ]; }; then
-      echo "::warning title=Limbowatch::The scan wrote a file the repository tracks in the reports directory; it wasn't copied."
-      continue
-    fi
+    if [ "$rc" != 1 ] && { [ "$rc" = 0 ] || [ -z "$only" ]; }; then n=$((n + 1)); continue; fi
     cp -- "$from/$f" "$to/$f"
-  done
+  done < <(cd "$from" && find . -mindepth 1 \( -type f -o -type l \) -print0)
+  echo "$n"
+}
+copy_back() {  # $3 = "reports": only the report files, whatever the directory holds
+  local only="$REPORT_FILES" listed skipped
+  if [ "${3:-}" != reports ] && listed="$(git -C "$2" ls-files -- . 2>/dev/null)" && [ -z "$listed" ]; then only=""; fi
+  skipped="$(_copy_back_files "$1" "$2" "$only")"
+  if [ "$skipped" -gt 0 ]; then
+    echo "::warning title=Limbowatch::$skipped file(s) the scan wrote in the reports directory weren't copied to it. Only regular files directly in it come back, never over a file the repository tracks; and when the directory holds files from the repository, or is reached through a symlink, only the report files. Keep --state and other files in a reports directory of their own."
+  fi
 }
 
 reports_dir=""     # image mode: where the image's reports are copied to afterwards
+reports_only=""    # "reports": copy back only the report files
 rep="$LW_REPORTS"  # where the scan writes them
 if [ "${LW_MODE:-python}" = "image" ]; then
   # Isolated: a compromised image must not be able to reach the runner. So it never sees the runner's temp
@@ -58,16 +66,25 @@ if [ "${LW_MODE:-python}" = "image" ]; then
     # wrote is copied back afterwards.
     mkdir -p "$LW_REPORTS" "$box/reports"
     reports_dir="$(cd "$LW_REPORTS" && pwd)"
-    case "$ws/:$PWD/" in
-      "$reports_dir"/*|*:"$reports_dir"/*)
-        # the checkout itself, or above it: mounting over it would hide the project, so the reports are written
-        # in the scan's own directory and only they are copied out
-        rep="$box/reports"
-        mounts+=(-v "$box/reports:$box/reports") ;;
-      *)
-        copy_files "$reports_dir" "$box/reports"   # a --state file kept there by an earlier run
-        mounts+=(-v "$box/reports:$reports_dir") ;;
+    # reached through a symlink? Then it could point anywhere, $RUNNER_TEMP included
+    linked=""
+    case "$reports_dir/" in
+      "$ws"/*) [ "$(cd "$reports_dir" && pwd -P)" = "$(cd "$ws" && pwd -P)${reports_dir#"$ws"}" ] || linked=1 ;;
+      *) [ ! -L "$reports_dir" ] || linked=1 ;;
     esac
+    case "$ws/:$PWD/" in
+      "$reports_dir"/*|*:"$reports_dir"/*) linked=1 ;;  # the checkout itself, or above it
+    esac
+    if [ -n "$linked" ]; then
+      # Mounting over it would hide the project, or follow the link: the reports are written in the scan's own
+      # directory, nothing is copied in, and only the report files are copied out.
+      rep="$box/reports"
+      reports_only=reports
+      mounts+=(-v "$box/reports:$box/reports")
+    else
+      copy_files "$reports_dir" "$box/reports"   # a --state file kept there by an earlier run
+      mounts+=(-v "$box/reports:$reports_dir")
+    fi
   fi
   # Workflow commands are off while the image runs: nothing it prints can set an output or end this step's
   # grouping. The token is random and the image never sees it.
@@ -117,7 +134,7 @@ status=0
 set -f
 run limbowatch scan "$LW_PATH" "$@" $LW_EXTRA || status=$?
 set +f
-[ -z "$reports_dir" ] || copy_back "$box/reports" "$reports_dir"
+[ -z "$reports_dir" ] || copy_back "$box/reports" "$reports_dir" "$reports_only"
 if [ -n "$LW_SARIF" ] && is_file "$out/limbowatch.sarif"; then
   mkdir -p "$(dirname "$LW_SARIF")" && cp -- "$out/limbowatch.sarif" "$LW_SARIF"
 fi
