@@ -17,8 +17,27 @@ copy_files() {
     mkdir -p "$2/$(dirname "$f")" && cp -- "$1/$f" "$2/$f"
   done
 }
+REPORT_FILES="report.json report.md report.html report.sarif report.csv cyclonedx.json"
+# Copy what the image wrote back into the checkout ($1 to $2; then, optionally, the only names to copy). It may be
+# compromised and later steps may run what's in the checkout, so: regular files only, never a file git tracks,
+# nothing under .git, no name with a control character.
+copy_back() {
+  local from="$1" to="$2"
+  shift 2
+  (cd "$from" && find . -type f -print0) | while IFS= read -r -d '' f; do
+    f="${f#./}"
+    case "$f" in *[[:cntrl:]]* | .git | .git/* | */.git | */.git/*) continue ;; esac
+    if [ $# -gt 0 ]; then case " $* " in *" $f "*) ;; *) continue ;; esac; fi
+    if git -C "$to" ls-files --error-unmatch -- "$f" >/dev/null 2>&1; then
+      echo "::warning title=Limbowatch::The scan wrote a file the repository tracks in the reports directory; it wasn't copied."
+      continue
+    fi
+    mkdir -p "$to/$(dirname "$f")" && cp -- "$from/$f" "$to/$f"
+  done
+}
 
 reports_dir=""     # image mode: where the image's reports are copied to afterwards
+report_names=""    # and, when that's the checkout itself, the only files copied
 rep="$LW_REPORTS"  # where the scan writes them
 if [ "${LW_MODE:-python}" = "image" ]; then
   # Isolated: a compromised image must not be able to reach the runner. So it never sees the runner's temp
@@ -38,8 +57,9 @@ if [ "${LW_MODE:-python}" = "image" ]; then
     case "$ws/:$PWD/" in
       "$reports_dir"/*|*:"$reports_dir"/*)
         # the checkout itself, or above it: mounting over it would hide the project, so the reports are written
-        # in the scan's own directory and copied out
+        # in the scan's own directory and only they are copied out
         rep="$box/reports"
+        report_names="$REPORT_FILES"
         mounts+=(-v "$box/reports:$box/reports") ;;
       *)
         copy_files "$reports_dir" "$box/reports"   # a --state file kept there by an earlier run
@@ -94,7 +114,8 @@ status=0
 set -f
 run limbowatch scan "$LW_PATH" "$@" $LW_EXTRA || status=$?
 set +f
-[ -z "$reports_dir" ] || copy_files "$box/reports" "$reports_dir"
+# shellcheck disable=SC2086 # report_names is a list of names, or empty for all
+[ -z "$reports_dir" ] || copy_back "$box/reports" "$reports_dir" $report_names
 if [ -n "$LW_SARIF" ] && is_file "$out/limbowatch.sarif"; then
   mkdir -p "$(dirname "$LW_SARIF")" && cp -- "$out/limbowatch.sarif" "$LW_SARIF"
 fi
@@ -108,7 +129,8 @@ if is_file "$out/limbowatch.json"; then
   fi
   if [ -n "${GITHUB_STEP_SUMMARY:-}" ] && is_file "$out/limbowatch.md"; then cat "$out/limbowatch.md" >> "$GITHUB_STEP_SUMMARY"; fi
   # outputs, then the verdict again as the step's last line, below the annotations
-  run python3 - "$out/limbowatch.json" "$out/limbowatch.outputs" <<'PY' >/dev/null
+  # it prints nothing itself, and workflow commands stay off while it runs, as for the scan
+  run python3 - "$out/limbowatch.json" "$out/limbowatch.outputs" <<'PY'
 import json, sys
 doc = json.load(open(sys.argv[1]))
 gate = doc["gate"]
